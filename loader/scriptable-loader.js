@@ -67,7 +67,7 @@ async function loadAndRun() {
   // 3. スクリプトの実行（ローダーに設定されたトークンを本体側へ引き継ぐ）
   try {
     globalThis.__IT_TREND_GITHUB_TOKEN__ = GITHUB_TOKEN;
-    eval(scriptCode);
+    await eval(scriptCode);
   } catch (evalErr) {
     console.error(`[Loader] Script execution failed: ${evalErr}`);
     const errWidget = new ListWidget();

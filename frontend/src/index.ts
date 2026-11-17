@@ -117,8 +117,84 @@ function getEffectiveToken(): string {
   return typeof shared === "string" ? shared : "";
 }
 
+function createOfflineFallbackResult(): { data: NewsData; isOffline: boolean } {
+  return {
+    isOffline: true,
+    data: {
+      updated_at: "未取得 (オフライン)",
+      articles: [
+        {
+          title: "記事の取得に失敗しました",
+          url: "https://github.com",
+          source: "System",
+          genre: "other",
+          headline: "URL設定またはネットワーク接続を確認してください。",
+          summary:
+            "GitHubのRaw URLまたはPrivateリポジトリ用のトークンが正しく設定されているか確認し、再度ウィジェットを更新してください。",
+          importance: 5,
+        },
+      ],
+    },
+  };
+}
+
+function readCachedNewsData(fm: FileManager, cachePath: string): NewsData | null {
+  if (!fm.fileExists(cachePath)) {
+    return null;
+  }
+  try {
+    const cachedStr = fm.readString(cachePath);
+    const cachedJson = JSON.parse(cachedStr) as NewsData;
+    if (cachedJson && Array.isArray(cachedJson.articles) && cachedJson.articles.length > 0) {
+      return cachedJson;
+    }
+  } catch (cacheErr) {
+    console.error(`[Cache Error] Failed to read cached data: ${cacheErr}`);
+  }
+  return null;
+}
+
+function getEmbeddedNewsData(): NewsData | null {
+  const embedded = (globalThis as Record<string, unknown>).__IT_TREND_EMBEDDED_DATA__ as
+    | NewsData
+    | undefined;
+  if (embedded && Array.isArray(embedded.articles) && embedded.articles.length > 0) {
+    return embedded;
+  }
+  return null;
+}
+
 /**
- * 記事データを取得（ネットワーク優先、失敗時はローカルキャッシュにフォールバック）
+ * ショートカット・ウィジェット用の完全同期データ読み込み
+ * （dist/widget.js 先頭に埋め込まれた最新データを優先使用し、await による早期終了を防ぐ）
+ */
+function loadArticlesSync(): { data: NewsData; isOffline: boolean } {
+  const fm = FileManager.local();
+  const cachePath = getCachePath(CACHE_FILENAME);
+  const embedded = getEmbeddedNewsData();
+  const cached = readCachedNewsData(fm, cachePath);
+
+  if (embedded) {
+    if (cached && cached.updated_at && embedded.updated_at && cached.updated_at > embedded.updated_at) {
+      return { data: cached, isOffline: false };
+    }
+    try {
+      fm.writeString(cachePath, JSON.stringify(embedded));
+    } catch {
+      // キャッシュ保存失敗時はそのままメモリ上のデータを使用
+    }
+    return { data: embedded, isOffline: false };
+  }
+
+  if (cached) {
+    return { data: cached, isOffline: true };
+  }
+
+  return createOfflineFallbackResult();
+}
+
+/**
+ * 記事データを取得（ネットワーク優先、失敗時は埋め込みデータ・ローカルキャッシュにフォールバック）
  */
 async function loadArticles(): Promise<{ data: NewsData; isOffline: boolean }> {
   const fm = FileManager.local();
@@ -149,34 +225,17 @@ async function loadArticles(): Promise<{ data: NewsData; isOffline: boolean }> {
   } catch (err) {
     console.warn(`[Network Error] Failed to fetch articles, fallback to cache: ${err}`);
 
-    if (fm.fileExists(cachePath)) {
-      try {
-        const cachedStr = fm.readString(cachePath);
-        const cachedJson = JSON.parse(cachedStr) as NewsData;
-        return { data: cachedJson, isOffline: true };
-      } catch (cacheErr) {
-        console.error(`[Cache Error] Failed to read cached data: ${cacheErr}`);
-      }
+    const cached = readCachedNewsData(fm, cachePath);
+    if (cached) {
+      return { data: cached, isOffline: true };
     }
 
-    return {
-      isOffline: true,
-      data: {
-        updated_at: "未取得 (オフライン)",
-        articles: [
-          {
-            title: "記事の取得に失敗しました",
-            url: "https://github.com",
-            source: "System",
-            genre: "other",
-            headline: "URL設定またはネットワーク接続を確認してください。",
-            summary:
-              "GitHubのRaw URLまたはPrivateリポジトリ用のトークンが正しく設定されているか確認し、再度ウィジェットを更新してください。",
-            importance: 5,
-          },
-        ],
-      },
-    };
+    const embedded = getEmbeddedNewsData();
+    if (embedded) {
+      return { data: embedded, isOffline: true };
+    }
+
+    return createOfflineFallbackResult();
   }
 }
 
@@ -300,8 +359,14 @@ function isWallpaperRequest(): boolean {
       ? args.queryParameters.action
       : undefined;
   const shortcutParam = getNormalizedShortcutParam();
+  const isBackgroundShortcut =
+    typeof config !== "undefined" &&
+    !config.runsInApp &&
+    !config.runsInWidget &&
+    !config.runsInAccessoryWidget;
   return (
     Boolean(config.runsWithSiri) ||
+    isBackgroundShortcut ||
     shortcutParam === "wallpaper" ||
     actionParam === "wallpaper"
   );
@@ -525,8 +590,7 @@ function getFilterLabel(selectedGenres: GenreCode[]): string {
     : "ALL";
 }
 
-async function prepareArticleContext(): Promise<ArticleContext> {
-  const { data, isOffline } = await loadArticles();
+function buildArticleContext(data: NewsData, isOffline: boolean): ArticleContext {
   const widgetParam = typeof args !== "undefined" ? args.widgetParameter : "";
   const rawShortcut = getNormalizedShortcutParam();
   const shortcutGenreParam =
@@ -550,6 +614,16 @@ async function prepareArticleContext(): Promise<ArticleContext> {
     isOffline,
     selectedGenres,
   };
+}
+
+async function prepareArticleContext(): Promise<ArticleContext> {
+  const { data, isOffline } = await loadArticles();
+  return buildArticleContext(data, isOffline);
+}
+
+function prepareArticleContextSync(): ArticleContext {
+  const { data, isOffline } = loadArticlesSync();
+  return buildArticleContext(data, isOffline);
 }
 
 /**
@@ -1355,27 +1429,34 @@ async function presentInteractiveReader(
   await wv.present(false);
 }
 
-// 実行エントリーポイント
-async function run() {
-  const ctx = await prepareArticleContext();
-
+// 実行エントリーポイント（ショートカット壁紙・ウィジェット時は完全同期実行してScriptable側の早期終了を防ぐ）
+function runSyncOrAsync(): Promise<void> | void {
   if (isWallpaperRequest()) {
-    // iOSショートカット（「スクリプトを実行」→「壁紙に設定」）経由では大カード壁紙画像を出力
+    const ctx = prepareArticleContextSync();
     const wallpaperImage = createWallpaperImage(ctx);
     Script.setShortcutOutput(wallpaperImage);
-  } else if (config.runsInWidget || config.runsInAccessoryWidget) {
+    Script.complete();
+    return;
+  }
+
+  if (config.runsInWidget || config.runsInAccessoryWidget) {
+    const ctx = prepareArticleContextSync();
     const widget = createWidget(ctx);
     Script.setWidget(widget);
-  } else {
-    // Scriptableアプリ内で実行した場合はスクロール＆NEXTティッカー付きリーダーを表示
+    Script.complete();
+    return;
+  }
+
+  return (async () => {
+    const ctx = await prepareArticleContext();
     await presentInteractiveReader(
       ctx.rotationList,
       ctx.currentIndex,
       ctx.updatedAt,
       ctx.selectedGenres
     );
-  }
-  Script.complete();
+    Script.complete();
+  })();
 }
 
-run();
+runSyncOrAsync();

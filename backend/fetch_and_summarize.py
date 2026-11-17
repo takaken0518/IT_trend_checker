@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
-from typing import Dict, List, Literal, Tuple
+from typing import Any, Dict, List, Literal, Tuple
 import requests
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
@@ -800,6 +800,36 @@ def select_and_interleave_articles(
     return interleaved[:target_total]
 
 
+def _inject_into_widget_bundle(output_data: Dict[str, Any]) -> None:
+    """dist/widget.js 先頭に最新 articles.json を埋め込み、ショートカット同期実行を可能にする"""
+    bundle_path = os.path.join(ROOT_DIR, "dist", "widget.js")
+    if not os.path.exists(bundle_path):
+        return
+
+    compact_json = (
+        json.dumps(output_data, ensure_ascii=False, separators=(",", ":"))
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+    header = (
+        "// __EMBEDDED_NEWS_START__\n"
+        f"globalThis.__IT_TREND_EMBEDDED_DATA__ = {compact_json};\n"
+        "// __EMBEDDED_NEWS_END__\n"
+    )
+
+    with open(bundle_path, "r", encoding="utf-8") as f:
+        raw_bundle = f.read()
+
+    cleaned_bundle = re.sub(
+        r"^// __EMBEDDED_NEWS_START__[\s\S]*?// __EMBEDDED_NEWS_END__\r?\n?",
+        "",
+        raw_bundle,
+    )
+    with open(bundle_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"{header}{cleaned_bundle}")
+    print(f"[5/5] Embedded {len(output_data.get('articles', []))} articles into {bundle_path}")
+
+
 def main():
     load_dotenv_if_present()
     config = load_config()
@@ -882,6 +912,8 @@ def main():
     print(f"[5/5] Writing {len(final_articles)} articles to {OUTPUT_PATH}...")
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(output_data, f, ensure_ascii=False, indent=2)
+
+    _inject_into_widget_bundle(output_data)
 
     print(f"[Success] Updated {len(final_articles)} articles at {updated_at_str}")
 
