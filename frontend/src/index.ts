@@ -1434,7 +1434,15 @@ function runSyncOrAsync(): Promise<void> | void {
   if (isWallpaperRequest()) {
     const ctx = prepareArticleContextSync();
     const wallpaperImage = createWallpaperImage(ctx);
-    Script.setShortcutOutput(wallpaperImage);
+    const fm = FileManager.local();
+    const wallpaperPath = fm.joinPath(fm.temporaryDirectory(), "it_trend_wallpaper.png");
+    fm.writeImage(wallpaperPath, wallpaperImage);
+    try {
+      Pasteboard.copyImage(wallpaperImage);
+    } catch {
+      // クリップボードコピー失敗時は無視
+    }
+    Script.setShortcutOutput(wallpaperPath);
     Script.complete();
     return;
   }
