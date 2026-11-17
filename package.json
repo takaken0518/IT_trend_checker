@@ -1,0 +1,15 @@
+{
+  "name": "it-trend-scriptable-widget",
+  "version": "1.0.0",
+  "description": "IT Trend News widget for Scriptable on iOS",
+  "main": "dist/widget.js",
+  "scripts": {
+    "build": "esbuild frontend/src/index.ts --bundle --outfile=dist/widget.js --format=iife --target=es2020",
+    "dev": "esbuild frontend/src/index.ts --bundle --outfile=dist/widget.js --format=iife --target=es2020 --watch"
+  },
+  "devDependencies": {
+    "@types/scriptable-ios": "^1.7.9",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "total_articles": 50,
+  "max_age_hours": 72,
+  "sources": {
+    "hatena_hot_limit": 25,
+    "hatena_new_limit": 20,
+    "zenn_limit": 35
+  },
+  "genres": {
+    "ai": "AI・LLM・機械学習",
+    "web": "Web開発・言語",
+    "infra": "インフラ・クラウド・セキュリティ",
+    "mobile": "モバイル・ガジェット・個人開発",
+    "biz": "ITビジネス・キャリア・マネジメント",
+    "other": "総合・その他IT"
+  },
+  "selected_genres": [
+    "ai",
+    "web",
+    "infra",
+    "mobile",
+    "biz"
+  ],
+  "other_genre_min_ratio": 0.25
+}
