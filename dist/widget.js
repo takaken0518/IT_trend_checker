@@ -186,6 +186,17 @@
     }
     return blended;
   }
+  function getNormalizedShortcutParam() {
+    if (typeof args === "undefined" || args.shortcutParameter == null) {
+      return "";
+    }
+    return String(args.shortcutParameter).trim().toLowerCase();
+  }
+  function isWallpaperRequest() {
+    const actionParam = typeof args !== "undefined" && args.queryParameters ? args.queryParameters.action : void 0;
+    const shortcutParam = getNormalizedShortcutParam();
+    return Boolean(config.runsWithSiri) || shortcutParam === "wallpaper" || actionParam === "wallpaper";
+  }
   function getNextArticlePair(list, filterKey) {
     const fm = FileManager.local();
     const statePath = getCachePath(ROTATION_STATE_FILENAME);
@@ -202,12 +213,14 @@
     const now = Date.now();
     const minIntervalMs = ROTATION_INTERVAL_MINUTES * 60 * 1e3;
     const actionParam = typeof args !== "undefined" && args.queryParameters ? args.queryParameters.action : void 0;
+    const shortcutParam = getNormalizedShortcutParam();
+    const effectiveAction = actionParam || (shortcutParam === "prev" || shortcutParam === "next" ? shortcutParam : void 0);
     let nextIndex = 0;
     let didRotate = true;
-    if (actionParam === "prev") {
+    if (effectiveAction === "prev") {
       const baseIdx = state.currentIndex >= 0 ? state.currentIndex : 0;
       nextIndex = (baseIdx - 1 + list.length) % list.length;
-    } else if (actionParam === "next") {
+    } else if (effectiveAction === "next" || isWallpaperRequest()) {
       const baseIdx = state.currentIndex >= 0 ? state.currentIndex : 0;
       nextIndex = (baseIdx + 1) % list.length;
     } else {
@@ -322,6 +335,30 @@
       return "";
     }
   }
+  function getFilterLabel(selectedGenres) {
+    return selectedGenres.length > 0 ? `${selectedGenres.map((g) => g.toUpperCase()).join("\u30FB")}+\u{1F310}` : "ALL";
+  }
+  async function prepareArticleContext() {
+    const { data, isOffline } = await loadArticles();
+    const widgetParam = typeof args !== "undefined" ? args.widgetParameter : "";
+    const rawShortcut = getNormalizedShortcutParam();
+    const shortcutGenreParam = rawShortcut && rawShortcut !== "wallpaper" && rawShortcut !== "prev" && rawShortcut !== "next" ? rawShortcut : "";
+    const selectedGenres = parseWidgetParameter(widgetParam || shortcutGenreParam);
+    const filterKey = selectedGenres.length > 0 ? selectedGenres.join(",") : "all";
+    const rotationList = buildRotationList(data.articles, selectedGenres);
+    const { current, next, currentIndex, total } = getNextArticlePair(rotationList, filterKey);
+    const updatedAt = formatUpdatedTime(data.updated_at);
+    return {
+      rotationList,
+      current,
+      next,
+      currentIndex,
+      total,
+      updatedAt,
+      isOffline,
+      selectedGenres
+    };
+  }
   function createLockScreenRectangularWidget(current, currentIndex, total) {
     const widget = new ListWidget();
     widget.setPadding(2, 4, 2, 4);
@@ -377,41 +414,17 @@
     count.centerAlignText();
     return widget;
   }
-  async function createWidget() {
-    const { data, isOffline } = await loadArticles();
-    const rawParam = typeof args !== "undefined" ? args.widgetParameter : "";
-    const selectedGenres = parseWidgetParameter(rawParam);
-    const filterKey = selectedGenres.length > 0 ? selectedGenres.join(",") : "all";
-    const rotationList = buildRotationList(data.articles, selectedGenres);
-    const { current, next, currentIndex, total } = getNextArticlePair(rotationList, filterKey);
-    const cleanTime = formatUpdatedTime(data.updated_at);
+  function createWidget(ctx) {
+    const { current, next, currentIndex, total, updatedAt: cleanTime, isOffline, selectedGenres } = ctx;
     const family = config.widgetFamily;
     if (family === "accessoryRectangular") {
-      return {
-        widget: createLockScreenRectangularWidget(current, currentIndex, total),
-        rotationList,
-        currentIndex,
-        updatedAt: cleanTime,
-        selectedGenres
-      };
+      return createLockScreenRectangularWidget(current, currentIndex, total);
     }
     if (family === "accessoryInline") {
-      return {
-        widget: createLockScreenInlineWidget(current),
-        rotationList,
-        currentIndex,
-        updatedAt: cleanTime,
-        selectedGenres
-      };
+      return createLockScreenInlineWidget(current);
     }
     if (family === "accessoryCircular") {
-      return {
-        widget: createLockScreenCircularWidget(currentIndex, total),
-        rotationList,
-        currentIndex,
-        updatedAt: cleanTime,
-        selectedGenres
-      };
+      return createLockScreenCircularWidget(currentIndex, total);
     }
     const widget = new ListWidget();
     widget.setPadding(12, 14, 12, 14);
@@ -431,7 +444,7 @@
     filterBadge.cornerRadius = 4;
     filterBadge.setPadding(2, 6, 2, 6);
     filterBadge.backgroundColor = new Color("#334155", 0.85);
-    const filterLabelStr = selectedGenres.length > 0 ? `${selectedGenres.map((g) => g.toUpperCase()).join("\u30FB")}+\u{1F310}` : "ALL";
+    const filterLabelStr = getFilterLabel(selectedGenres);
     const filterText = filterBadge.addText(filterLabelStr);
     filterText.font = Font.boldSystemFont(9);
     filterText.textColor = new Color("#cbd5e1");
@@ -549,13 +562,271 @@
     const nextBtnText = nextBtn.addText("\u2192");
     nextBtnText.font = Font.boldSystemFont(10);
     nextBtnText.textColor = new Color("#e2e8f0");
-    return {
-      widget,
-      rotationList,
-      currentIndex,
-      updatedAt: cleanTime,
-      selectedGenres
-    };
+    return widget;
+  }
+  function lerpRgbColor(c1, c2, t, alpha = 1) {
+    const clampByte = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+    const r = clampByte(c1[0] + (c2[0] - c1[0]) * t);
+    const g = clampByte(c1[1] + (c2[1] - c1[1]) * t);
+    const b = clampByte(c1[2] + (c2[2] - c1[2]) * t);
+    return new Color(`#${r}${g}${b}`, alpha);
+  }
+  function fillRoundedRect(dc, rect, radius, color) {
+    const path = new Path();
+    path.addRoundedRect(rect, radius, radius);
+    dc.addPath(path);
+    dc.setFillColor(color);
+    dc.fillPath();
+  }
+  function strokeRoundedRect(dc, rect, radius, color, lineWidth) {
+    const path = new Path();
+    path.addRoundedRect(rect, radius, radius);
+    dc.addPath(path);
+    dc.setStrokeColor(color);
+    dc.setLineWidth(lineWidth);
+    dc.strokePath();
+  }
+  function drawWallpaperBackground(dc, width, height) {
+    const stops = [
+      [9, 13, 24],
+      [15, 23, 42],
+      [30, 27, 75],
+      [9, 13, 24]
+    ];
+    const bands = 42;
+    const bandH = Math.ceil(height / bands) + 2;
+    for (let i = 0; i < bands; i++) {
+      const progress = i / (bands - 1) * (stops.length - 1);
+      const idx = Math.min(stops.length - 2, Math.floor(progress));
+      const localT = progress - idx;
+      dc.setFillColor(lerpRgbColor(stops[idx], stops[idx + 1], localT));
+      dc.fillRect(new Rect(0, Math.floor(i * height / bands), width, bandH));
+    }
+    dc.setFillColor(new Color("#3b82f6", 0.1));
+    dc.fillEllipse(new Rect(680, 560, 580, 580));
+    dc.setFillColor(new Color("#8b5cf6", 0.09));
+    dc.fillEllipse(new Rect(-140, 1760, 640, 640));
+  }
+  function estimateDisplayUnits(text) {
+    let units = 0;
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      units += code >= 32 && code <= 126 ? 0.58 : 1;
+    }
+    return units;
+  }
+  function estimateWrappedLineCount(text, unitsPerLine) {
+    const lines = text.split(/\n/);
+    let total = 0;
+    for (const line of lines) {
+      if (!line) {
+        total += 1;
+        continue;
+      }
+      total += Math.max(1, Math.ceil(estimateDisplayUnits(line) * 1.12 / unitsPerLine));
+    }
+    return total;
+  }
+  function truncateByUnits(text, maxUnits) {
+    let units = 0;
+    let out = "";
+    for (const ch of Array.from(text)) {
+      const u = estimateDisplayUnits(ch);
+      if (units + u > maxUnits - 1) {
+        return `${out}\u2026`;
+      }
+      out += ch;
+      units += u;
+    }
+    return out;
+  }
+  function drawPillBadge(dc, label, x, y, height, fontSize, bgColor, textColor) {
+    const pillW = Math.max(height, Math.ceil(estimateDisplayUnits(label) * fontSize * 0.96 + 30));
+    fillRoundedRect(dc, new Rect(x, y, pillW, height), 10, bgColor);
+    dc.setFont(Font.boldSystemFont(fontSize));
+    dc.setTextColor(textColor);
+    dc.setTextAlignedCenter();
+    const textY = y + Math.max(2, Math.round((height - fontSize * 1.25) / 2));
+    dc.drawTextInRect(label, new Rect(x, textY, pillW, height - (textY - y)));
+    return pillW;
+  }
+  function createWallpaperImage(ctx) {
+    const W = 1179;
+    const H = 2556;
+    const dc = new DrawContext();
+    dc.size = new Size(W, H);
+    dc.opaque = true;
+    dc.respectScreenScale = false;
+    drawWallpaperBackground(dc, W, H);
+    const cardX = 48;
+    const cardY = 790;
+    const cardW = W - cardX * 2;
+    const cardH = 1410;
+    const padX = 48;
+    const innerX = cardX + padX;
+    const innerW = cardW - padX * 2;
+    fillRoundedRect(dc, new Rect(cardX, cardY, cardW, cardH), 38, new Color("#0f172a", 0.88));
+    strokeRoundedRect(dc, new Rect(cardX, cardY, cardW, cardH), 38, new Color("#38bdf8", 0.28), 2);
+    const { current, next, currentIndex, total, updatedAt, isOffline, selectedGenres } = ctx;
+    if (!current) {
+      dc.setFont(Font.boldSystemFont(34));
+      dc.setTextColor(new Color("#f8fafc"));
+      dc.setTextAlignedCenter();
+      dc.drawTextInRect("\u8868\u793A\u3067\u304D\u308B\u8A18\u4E8B\u304C\u3042\u308A\u307E\u305B\u3093", new Rect(innerX, cardY + 640, innerW, 80));
+      return dc.getImage();
+    }
+    dc.setFont(Font.boldSystemFont(30));
+    dc.setTextColor(new Color("#60a5fa"));
+    dc.setTextAlignedLeft();
+    dc.drawTextInRect("\u26A1 IT Trend", new Rect(innerX, 834, 210, 42));
+    const filterLabel = truncateByUnits(getFilterLabel(selectedGenres), 14);
+    const filterPillW = drawPillBadge(
+      dc,
+      filterLabel,
+      innerX + 216,
+      834,
+      36,
+      20,
+      new Color("#334155", 0.9),
+      new Color("#cbd5e1")
+    );
+    const statusStr = isOffline ? `${currentIndex + 1} / ${total}\u4EF6 \u2022 \u30AD\u30E3\u30C3\u30B7\u30E5` : `${currentIndex + 1} / ${total}\u4EF6 \u2022 ${updatedAt}`;
+    const statusStartX = Math.max(216 + filterPillW + 14, 520);
+    dc.setFont(Font.mediumSystemFont(23));
+    dc.setTextColor(new Color("#94a3b8"));
+    dc.setTextAlignedRight();
+    dc.drawTextInRect(statusStr, new Rect(innerX + statusStartX, 839, innerW - statusStartX, 34));
+    const maxDots = Math.min(Math.max(total, 1), 15);
+    const activeDot = total <= 15 ? currentIndex : Math.floor(currentIndex / total * maxDots);
+    let dotX = innerX;
+    for (let i = 0; i < maxDots; i++) {
+      const isActive = i === activeDot;
+      const dotW = isActive ? 42 : 16;
+      fillRoundedRect(
+        dc,
+        new Rect(dotX, 892, dotW, 10),
+        5,
+        isActive ? new Color("#38bdf8") : new Color("#475569", 0.65)
+      );
+      dotX += dotW + 10;
+    }
+    let badgeX = innerX;
+    const badgeY = 924;
+    const genreMeta = GENRE_META[current.genreCode];
+    badgeX += drawPillBadge(
+      dc,
+      current.genreDisplay,
+      badgeX,
+      badgeY,
+      40,
+      22,
+      new Color(genreMeta.color, 0.26),
+      new Color(genreMeta.color)
+    ) + 12;
+    const isZenn = current.source.toLowerCase().includes("zenn");
+    badgeX += drawPillBadge(
+      dc,
+      current.source.toUpperCase(),
+      badgeX,
+      badgeY,
+      40,
+      22,
+      new Color(isZenn ? "#3ea8ff" : "#ef4444", 0.22),
+      new Color(isZenn ? "#7dd3fc" : "#fca5a5")
+    ) + 12;
+    if (current.isDiscovery) {
+      badgeX += drawPillBadge(
+        dc,
+        "\u2728 \u6CE8\u76EE\u67A0",
+        badgeX,
+        badgeY,
+        40,
+        22,
+        new Color("#f59e0b", 0.25),
+        new Color("#fcd34d")
+      ) + 12;
+    }
+    const formattedPub = formatJapanesePublishedAt(current.published_at);
+    if (formattedPub && badgeX < innerX + innerW - 140) {
+      dc.setFont(Font.mediumSystemFont(22));
+      dc.setTextColor(new Color("#94a3b8"));
+      dc.setTextAlignedRight();
+      dc.drawTextInRect(`\u{1F552} ${formattedPub}`, new Rect(badgeX, 930, innerX + innerW - badgeX, 34));
+    }
+    let curY = 992;
+    const titleLines = Math.min(4, estimateWrappedLineCount(current.title, 22.5));
+    const titleH = titleLines * 54 + 6;
+    dc.setFont(Font.boldSystemFont(40));
+    dc.setTextColor(new Color("#f8fafc"));
+    dc.setTextAlignedLeft();
+    dc.drawTextInRect(current.title, new Rect(innerX, curY, innerW, titleH));
+    curY += titleH + 14;
+    if (current.headlineText && current.headlineText !== current.title) {
+      const hlStr = `\u{1F4A1} ${current.headlineText}`;
+      const hlLines = Math.min(2, estimateWrappedLineCount(hlStr, 31.5));
+      const hlBoxH = hlLines * 38 + 20;
+      fillRoundedRect(dc, new Rect(innerX, curY, innerW, hlBoxH), 14, new Color("#0ea5e9", 0.13));
+      fillRoundedRect(dc, new Rect(innerX, curY + 6, 6, hlBoxH - 12), 3, new Color("#38bdf8"));
+      dc.setFont(Font.boldSystemFont(28));
+      dc.setTextColor(new Color("#38bdf8"));
+      dc.setTextAlignedLeft();
+      dc.drawTextInRect(hlStr, new Rect(innerX + 22, curY + 10, innerW - 36, hlBoxH - 14));
+      curY += hlBoxH + 18;
+    }
+    dc.setFillColor(new Color("#334155", 0.8));
+    dc.fillRect(new Rect(innerX, curY, innerW, 2));
+    curY += 22;
+    const footerTopY = 2116;
+    const bodyMaxY = footerTopY - 14;
+    const availableBodyH = Math.max(120, bodyMaxY - curY);
+    const paragraphs = ensureParagraphs(current.summary).split(/\n{2,}/).filter((p) => p.trim().length > 0);
+    const fontPresets = [
+      { size: 31, lineH: 45, uPerLine: 30.2, gap: 20 },
+      { size: 28, lineH: 40, uPerLine: 33.5, gap: 17 },
+      { size: 25, lineH: 36, uPerLine: 37.5, gap: 14 }
+    ];
+    let chosen = fontPresets[fontPresets.length - 1];
+    for (const preset of fontPresets) {
+      let neededH = 0;
+      for (let i = 0; i < paragraphs.length; i++) {
+        neededH += estimateWrappedLineCount(paragraphs[i], preset.uPerLine) * preset.lineH;
+        if (i < paragraphs.length - 1) neededH += preset.gap;
+      }
+      if (neededH <= availableBodyH) {
+        chosen = preset;
+        break;
+      }
+    }
+    dc.setFont(Font.systemFont(chosen.size));
+    dc.setTextColor(new Color("#e2e8f0"));
+    dc.setTextAlignedLeft();
+    for (const para of paragraphs) {
+      const remainingH = bodyMaxY - curY;
+      if (remainingH < chosen.lineH) break;
+      const estH = estimateWrappedLineCount(para, chosen.uPerLine) * chosen.lineH + 6;
+      const drawH = Math.min(estH, remainingH);
+      dc.drawTextInRect(para, new Rect(innerX, curY, innerW, drawH));
+      curY += drawH + chosen.gap;
+    }
+    dc.setFillColor(new Color("#334155", 0.8));
+    dc.fillRect(new Rect(innerX, footerTopY, innerW, 2));
+    dc.setFont(Font.boldSystemFont(24));
+    dc.setTextColor(new Color("#38bdf8"));
+    dc.setTextAlignedLeft();
+    dc.drawTextInRect("NEXT \u25B8", new Rect(innerX, footerTopY + 22, 118, 36));
+    const nextSummary = truncateByUnits(`[${next.genreDisplay}] ${next.title}`, 34);
+    dc.setFont(Font.systemFont(24));
+    dc.setTextColor(new Color("#94a3b8"));
+    dc.setTextAlignedLeft();
+    dc.drawTextInRect(nextSummary, new Rect(innerX + 120, footerTopY + 22, innerW - 120, 36));
+    dc.setFont(Font.mediumSystemFont(22));
+    dc.setTextColor(new Color("#94a3b8", 0.78));
+    dc.setTextAlignedCenter();
+    dc.drawTextInRect(
+      "\u{1F4A1} \u80CC\u9762\u30BF\u30C3\u30D7\u3084\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u5B9F\u884C\u3067\u6B21\u306E\u8A18\u4E8B\u30AB\u30FC\u30C9\u3078\u66F4\u65B0",
+      new Rect(cardX, cardY + cardH + 18, cardW, 34)
+    );
+    return dc.getImage();
   }
   async function presentInteractiveReader(list, startIndex, updatedAt, selectedGenres) {
     const payloadJson = JSON.stringify(
@@ -722,11 +993,20 @@
     await wv.present(false);
   }
   async function run() {
-    const { widget, rotationList, currentIndex, updatedAt, selectedGenres } = await createWidget();
-    if (config.runsInWidget || config.runsInAccessoryWidget) {
+    const ctx = await prepareArticleContext();
+    if (isWallpaperRequest()) {
+      const wallpaperImage = createWallpaperImage(ctx);
+      Script.setShortcutOutput(wallpaperImage);
+    } else if (config.runsInWidget || config.runsInAccessoryWidget) {
+      const widget = createWidget(ctx);
       Script.setWidget(widget);
     } else {
-      await presentInteractiveReader(rotationList, currentIndex, updatedAt, selectedGenres);
+      await presentInteractiveReader(
+        ctx.rotationList,
+        ctx.currentIndex,
+        ctx.updatedAt,
+        ctx.selectedGenres
+      );
     }
     Script.complete();
   }
