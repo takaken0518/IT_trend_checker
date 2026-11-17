@@ -211,7 +211,7 @@
       const baseIdx = state.currentIndex >= 0 ? state.currentIndex : 0;
       nextIndex = (baseIdx + 1) % list.length;
     } else {
-      const shouldHold = config.runsInWidget && state.currentIndex >= 0 && typeof state.lastRotatedAt === "number" && now - state.lastRotatedAt < minIntervalMs;
+      const shouldHold = state.currentIndex >= 0 && typeof state.lastRotatedAt === "number" && now - state.lastRotatedAt < minIntervalMs;
       if (shouldHold) {
         nextIndex = state.currentIndex % list.length;
         didRotate = false;
@@ -322,6 +322,61 @@
       return "";
     }
   }
+  function createLockScreenRectangularWidget(current, currentIndex, total) {
+    const widget = new ListWidget();
+    widget.setPadding(2, 4, 2, 4);
+    widget.refreshAfterDate = new Date(Date.now() + ROTATION_INTERVAL_MINUTES * 60 * 1e3);
+    try {
+      widget.url = URLScheme.forRunningScript();
+    } catch {
+      widget.url = current.url;
+    }
+    const headerText = widget.addText(
+      `\u26A1 [${current.genreDisplay}] ${currentIndex + 1}/${total}\u4EF6`
+    );
+    headerText.font = Font.boldSystemFont(10);
+    headerText.lineLimit = 1;
+    headerText.minimumScaleFactor = 0.85;
+    widget.addSpacer(1);
+    const titleText = widget.addText(current.title);
+    titleText.font = Font.boldSystemFont(11);
+    titleText.lineLimit = 2;
+    titleText.minimumScaleFactor = 0.85;
+    widget.addSpacer(1);
+    const sub = current.headlineText || current.summary;
+    const subText = widget.addText(`\u{1F4A1} ${sub}`);
+    subText.font = Font.systemFont(10);
+    subText.lineLimit = 1;
+    subText.minimumScaleFactor = 0.85;
+    return widget;
+  }
+  function createLockScreenInlineWidget(current) {
+    const widget = new ListWidget();
+    widget.refreshAfterDate = new Date(Date.now() + ROTATION_INTERVAL_MINUTES * 60 * 1e3);
+    try {
+      widget.url = URLScheme.forRunningScript();
+    } catch {
+      widget.url = current.url;
+    }
+    const label = `\u26A1 [${current.genreDisplay}] ${current.headlineText || current.title}`;
+    widget.addText(label);
+    return widget;
+  }
+  function createLockScreenCircularWidget(currentIndex, total) {
+    const widget = new ListWidget();
+    widget.refreshAfterDate = new Date(Date.now() + ROTATION_INTERVAL_MINUTES * 60 * 1e3);
+    try {
+      widget.url = URLScheme.forRunningScript();
+    } catch {
+    }
+    const title = widget.addText("\u26A1 IT");
+    title.font = Font.boldSystemFont(11);
+    title.centerAlignText();
+    const count = widget.addText(`${currentIndex + 1}/${total}`);
+    count.font = Font.mediumSystemFont(10);
+    count.centerAlignText();
+    return widget;
+  }
   async function createWidget() {
     const { data, isOffline } = await loadArticles();
     const rawParam = typeof args !== "undefined" ? args.widgetParameter : "";
@@ -329,6 +384,35 @@
     const filterKey = selectedGenres.length > 0 ? selectedGenres.join(",") : "all";
     const rotationList = buildRotationList(data.articles, selectedGenres);
     const { current, next, currentIndex, total } = getNextArticlePair(rotationList, filterKey);
+    const cleanTime = formatUpdatedTime(data.updated_at);
+    const family = config.widgetFamily;
+    if (family === "accessoryRectangular") {
+      return {
+        widget: createLockScreenRectangularWidget(current, currentIndex, total),
+        rotationList,
+        currentIndex,
+        updatedAt: cleanTime,
+        selectedGenres
+      };
+    }
+    if (family === "accessoryInline") {
+      return {
+        widget: createLockScreenInlineWidget(current),
+        rotationList,
+        currentIndex,
+        updatedAt: cleanTime,
+        selectedGenres
+      };
+    }
+    if (family === "accessoryCircular") {
+      return {
+        widget: createLockScreenCircularWidget(currentIndex, total),
+        rotationList,
+        currentIndex,
+        updatedAt: cleanTime,
+        selectedGenres
+      };
+    }
     const widget = new ListWidget();
     widget.setPadding(12, 14, 12, 14);
     widget.refreshAfterDate = new Date(Date.now() + ROTATION_INTERVAL_MINUTES * 60 * 1e3);
@@ -352,7 +436,6 @@
     filterText.font = Font.boldSystemFont(9);
     filterText.textColor = new Color("#cbd5e1");
     headerStack.addSpacer();
-    const cleanTime = formatUpdatedTime(data.updated_at);
     const statusStr = isOffline ? `${currentIndex + 1} / ${total}\u4EF6 \u2022 \u30AD\u30E3\u30C3\u30B7\u30E5` : `${currentIndex + 1} / ${total}\u4EF6 \u2022 ${cleanTime}`;
     const statusText = headerStack.addText(statusStr);
     statusText.font = Font.mediumSystemFont(10);
@@ -640,7 +723,7 @@
   }
   async function run() {
     const { widget, rotationList, currentIndex, updatedAt, selectedGenres } = await createWidget();
-    if (config.runsInWidget) {
+    if (config.runsInWidget || config.runsInAccessoryWidget) {
       Script.setWidget(widget);
     } else {
       await presentInteractiveReader(rotationList, currentIndex, updatedAt, selectedGenres);

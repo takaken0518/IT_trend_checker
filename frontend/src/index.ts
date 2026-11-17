@@ -331,8 +331,8 @@ function getNextArticlePair(
     const baseIdx = state.currentIndex >= 0 ? state.currentIndex : 0;
     nextIndex = (baseIdx + 1) % list.length;
   } else {
+    // ウィジェット表示中またはロック画面ウィジェットタップ起動後10分以内は同じ記事を維持してズレを防止
     const shouldHold =
-      config.runsInWidget &&
       state.currentIndex >= 0 &&
       typeof state.lastRotatedAt === "number" &&
       now - state.lastRotatedAt < minIntervalMs;
@@ -493,7 +493,90 @@ interface WidgetBuildResult {
 }
 
 /**
- * Largeウィジェットを構築（1件リッチ表示 + 自動ローテーション）
+ * ロック画面（時計の下・長方形 accessoryRectangular）向けウィジェットを構築
+ */
+function createLockScreenRectangularWidget(
+  current: DisplayArticle,
+  currentIndex: number,
+  total: number
+): ListWidget {
+  const widget = new ListWidget();
+  widget.setPadding(2, 4, 2, 4);
+  widget.refreshAfterDate = new Date(Date.now() + ROTATION_INTERVAL_MINUTES * 60 * 1000);
+  try {
+    widget.url = URLScheme.forRunningScript();
+  } catch {
+    widget.url = current.url;
+  }
+
+  // 1行目: ジャンル＆進捗カウンター
+  const headerText = widget.addText(
+    `⚡ [${current.genreDisplay}] ${currentIndex + 1}/${total}件`
+  );
+  headerText.font = Font.boldSystemFont(10);
+  headerText.lineLimit = 1;
+  headerText.minimumScaleFactor = 0.85;
+
+  widget.addSpacer(1);
+
+  // 2〜3行目: 記事タイトル
+  const titleText = widget.addText(current.title);
+  titleText.font = Font.boldSystemFont(11);
+  titleText.lineLimit = 2;
+  titleText.minimumScaleFactor = 0.85;
+
+  widget.addSpacer(1);
+
+  // 4行目: キャッチコピーまたは要約冒頭
+  const sub = current.headlineText || current.summary;
+  const subText = widget.addText(`💡 ${sub}`);
+  subText.font = Font.systemFont(10);
+  subText.lineLimit = 1;
+  subText.minimumScaleFactor = 0.85;
+
+  return widget;
+}
+
+/**
+ * ロック画面（時計の上・1行 accessoryInline）向けウィジェットを構築
+ */
+function createLockScreenInlineWidget(current: DisplayArticle): ListWidget {
+  const widget = new ListWidget();
+  widget.refreshAfterDate = new Date(Date.now() + ROTATION_INTERVAL_MINUTES * 60 * 1000);
+  try {
+    widget.url = URLScheme.forRunningScript();
+  } catch {
+    widget.url = current.url;
+  }
+  const label = `⚡ [${current.genreDisplay}] ${current.headlineText || current.title}`;
+  widget.addText(label);
+  return widget;
+}
+
+/**
+ * ロック画面（時計の下・丸型 accessoryCircular）向けウィジェットを構築
+ */
+function createLockScreenCircularWidget(currentIndex: number, total: number): ListWidget {
+  const widget = new ListWidget();
+  widget.refreshAfterDate = new Date(Date.now() + ROTATION_INTERVAL_MINUTES * 60 * 1000);
+  try {
+    widget.url = URLScheme.forRunningScript();
+  } catch {
+    // ignore
+  }
+  const title = widget.addText("⚡ IT");
+  title.font = Font.boldSystemFont(11);
+  title.centerAlignText();
+
+  const count = widget.addText(`${currentIndex + 1}/${total}`);
+  count.font = Font.mediumSystemFont(10);
+  count.centerAlignText();
+
+  return widget;
+}
+
+/**
+ * ウィジェットを構築（ロック画面サイズ＆Largeサイズの両方に対応）
  */
 async function createWidget(): Promise<WidgetBuildResult> {
   const { data, isOffline } = await loadArticles();
@@ -503,6 +586,36 @@ async function createWidget(): Promise<WidgetBuildResult> {
 
   const rotationList = buildRotationList(data.articles, selectedGenres);
   const { current, next, currentIndex, total } = getNextArticlePair(rotationList, filterKey);
+  const cleanTime = formatUpdatedTime(data.updated_at);
+
+  const family = config.widgetFamily;
+  if (family === "accessoryRectangular") {
+    return {
+      widget: createLockScreenRectangularWidget(current, currentIndex, total),
+      rotationList,
+      currentIndex,
+      updatedAt: cleanTime,
+      selectedGenres,
+    };
+  }
+  if (family === "accessoryInline") {
+    return {
+      widget: createLockScreenInlineWidget(current),
+      rotationList,
+      currentIndex,
+      updatedAt: cleanTime,
+      selectedGenres,
+    };
+  }
+  if (family === "accessoryCircular") {
+    return {
+      widget: createLockScreenCircularWidget(currentIndex, total),
+      rotationList,
+      currentIndex,
+      updatedAt: cleanTime,
+      selectedGenres,
+    };
+  }
 
   const widget = new ListWidget();
   widget.setPadding(12, 14, 12, 14);
@@ -542,7 +655,6 @@ async function createWidget(): Promise<WidgetBuildResult> {
   headerStack.addSpacer();
 
   // ページ番号 & 更新時刻
-  const cleanTime = formatUpdatedTime(data.updated_at);
   const statusStr = isOffline
     ? `${currentIndex + 1} / ${total}件 • キャッシュ`
     : `${currentIndex + 1} / ${total}件 • ${cleanTime}`;
@@ -881,7 +993,7 @@ async function presentInteractiveReader(
 async function run() {
   const { widget, rotationList, currentIndex, updatedAt, selectedGenres } = await createWidget();
 
-  if (config.runsInWidget) {
+  if (config.runsInWidget || config.runsInAccessoryWidget) {
     Script.setWidget(widget);
   } else {
     // Scriptableアプリ内で実行した場合はスクロール＆NEXTティッカー付きリーダーを表示
