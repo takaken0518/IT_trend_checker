@@ -1051,14 +1051,7 @@ globalThis.__IT_TREND_EMBEDDED_DATA__ = {"updated_at":"2026-11-17 21:35:15 JST",
     if (isWallpaperRequest()) {
       const ctx = prepareArticleContextSync();
       const wallpaperImage = createWallpaperImage(ctx);
-      const fm = FileManager.local();
-      const wallpaperPath = fm.joinPath(fm.temporaryDirectory(), "it_trend_wallpaper.png");
-      fm.writeImage(wallpaperPath, wallpaperImage);
-      try {
-        Pasteboard.copyImage(wallpaperImage);
-      } catch {
-      }
-      Script.setShortcutOutput(wallpaperPath);
+      Script.setShortcutOutput(wallpaperImage);
       Script.complete();
       return;
     }
