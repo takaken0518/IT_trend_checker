@@ -123,11 +123,11 @@ private struct LockScreenLiveActivityView: View {
             && !state.headlineText.isEmpty
             && state.headlineText != state.title
 
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             // 1. ヘッダー行
             HStack(spacing: 5) {
                 Text("⚡ IT Trend")
-                    .font(.system(size: 10.5, weight: .bold))
+                    .font(.system(size: 11.5, weight: .bold))
                     .foregroundColor(Color(red: 96 / 255, green: 165 / 255, blue: 250 / 255))
 
                 pill(
@@ -154,40 +154,69 @@ private struct LockScreenLiveActivityView: View {
 
                 Spacer(minLength: 4)
 
-                Text("\(state.currentIndex + 1)/\(max(1, state.totalCount))")
-                    .font(.system(size: 10.5, weight: .semibold))
+                Text("\(state.currentIndex + 1)/\(max(1, state.totalCount))件")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(Color(red: 148 / 255, green: 163 / 255, blue: 184 / 255))
             }
+            .layoutPriority(1)
 
             // 2. 記事タイトル
             Text(state.title)
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 14.5, weight: .bold))
                 .foregroundColor(.white)
-                .lineLimit(2)
+                .lineLimit(3)
+                .minimumScaleFactor(0.9)
                 .fixedSize(horizontal: false, vertical: true)
 
             // 3. 一言キャッチ（1ページ目のみ）
             if showHeadline {
                 Text("💡 \(state.headlineText)")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(Color(red: 56 / 255, green: 189 / 255, blue: 248 / 255))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.9)
             }
 
             // 4. AI要約（現在ページ）
             Text(state.summaryPageText)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
+                .lineSpacing(2)
                 .foregroundColor(Color(red: 226 / 255, green: 232 / 255, blue: 240 / 255))
-                .lineLimit(showHeadline ? 3 : 4)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(showHeadline ? 5 : 6)
+                .minimumScaleFactor(0.85)
 
-            // 5. ロック画面操作ボタン行
-            HStack(spacing: 6) {
+            // 5. 専用 NEXT プレビューバー（横幅いっぱいに次記事を表示・タップで次へ）
+            if !state.nextTitle.isEmpty {
+                Button(intent: NextArticleIntent()) {
+                    HStack(spacing: 6) {
+                        Text("NEXT ▸")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Color(red: 56 / 255, green: 189 / 255, blue: 248 / 255))
+
+                        Text(state.nextTitle)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundColor(Color(red: 203 / 255, green: 213 / 255, blue: 225 / 255))
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .layoutPriority(1)
+            }
+
+            // 6. ロック画面操作ボタン行
+            HStack(spacing: 8) {
                 Button(intent: PrevArticleIntent()) {
-                    Text("← 前へ")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
+                    Text("← 前の記事")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                         .background(Color(red: 51 / 255, green: 65 / 255, blue: 85 / 255))
                         .foregroundColor(.white)
                         .clipShape(Capsule())
@@ -198,9 +227,9 @@ private struct LockScreenLiveActivityView: View {
                 if state.totalPages > 1 {
                     Button(intent: ToggleSummaryPageIntent()) {
                         Text("📄 続き \(state.currentPage + 1)/\(state.totalPages)")
-                            .font(.system(size: 10.5, weight: .bold))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
+                            .font(.system(size: 11.5, weight: .bold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
                             .background(Color(red: 14 / 255, green: 165 / 255, blue: 233 / 255).opacity(0.28))
                             .foregroundColor(Color(red: 125 / 255, green: 211 / 255, blue: 252 / 255))
                             .clipShape(Capsule())
@@ -209,21 +238,13 @@ private struct LockScreenLiveActivityView: View {
                     .buttonStyle(.plain)
                 }
 
-                if !state.nextTitle.isEmpty {
-                    Text("NEXT: \(state.nextTitle)")
-                        .font(.system(size: 9.5))
-                        .foregroundColor(Color(red: 148 / 255, green: 163 / 255, blue: 184 / 255))
-                        .lineLimit(1)
-                        .layoutPriority(-1)
-                }
-
-                Spacer(minLength: 2)
+                Spacer(minLength: 4)
 
                 Button(intent: NextArticleIntent()) {
-                    Text("次へ →")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
+                    Text("次の記事 →")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                         .background(Color(red: 37 / 255, green: 99 / 255, blue: 235 / 255))
                         .foregroundColor(.white)
                         .clipShape(Capsule())
@@ -231,10 +252,10 @@ private struct LockScreenLiveActivityView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.top, 2)
+            .layoutPriority(1)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
     }
 
     private func pill(_ text: String, bg: Color, fg: Color) -> some View {

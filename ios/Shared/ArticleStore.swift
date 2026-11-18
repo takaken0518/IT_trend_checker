@@ -295,13 +295,13 @@ final class ArticleStore: ObservableObject {
             genreDisplay: current.genreDisplay,
             publishedText: Self.truncate(current.publishedText, maxChars: 36),
             headlineText: Self.truncate(current.headlineText, maxChars: 90),
-            summaryPageText: Self.truncate(pageText, maxChars: 210),
+            summaryPageText: Self.truncate(pageText, maxChars: 250),
             isDiscovery: current.isDiscovery,
             currentIndex: currentIndex,
             totalCount: rotationList.count,
             currentPage: safePage,
             totalPages: pages.count,
-            nextTitle: Self.truncate(next.title, maxChars: 55),
+            nextTitle: Self.truncate("[\(next.genreDisplay)] \(next.title)", maxChars: 85),
             updatedAt: Self.truncate(formattedUpdatedAt, maxChars: 32)
         )
     }
@@ -422,7 +422,7 @@ final class ArticleStore: ObservableObject {
         let trimmedHeadline = item.headline?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let headlineText = trimmedHeadline.isEmpty ? String(item.summary.prefix(40)) : trimmedHeadline
         let formattedSummary = ensureParagraphs(item.summary)
-        let pages = paginateSummary(formattedSummary, maxCharsPerPage: 135)
+        let pages = paginateSummary(formattedSummary, maxCharsPerPage: 185)
 
         return DisplayArticle(
             id: "\(index)-\(item.url)",
