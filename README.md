@@ -186,6 +186,37 @@ const GITHUB_TOKEN = ""; // Privateリポジトリの場合は上記と同じト
 
 ---
 
+## 📱 iOSネイティブアプリ版（ロック画面 Live Activity 対応・Mac不要）
+
+Scriptable版とは別に、**ロック画面に大型カード（Live Activity）を常駐させ、ロック解除せずにボタンで記事や要約ページを切り替えられる** ネイティブiOSアプリ（`ios/`）を同梱しています。  
+Macが手元にない場合でも、GitHub Actionsの無料macOS環境で `.ipa` をビルドし、Windows PCから自分のiPhoneへインストールできます。
+
+### できること
+- **ロック画面 Live Activity（iOS 17以降）**: ロック画面の下部にダークテーマの記事カードを表示し、カード内の **`← 前へ`** / **`📄 続き 1/2`** / **`次へ →`** ボタンをタップしてロック画面のまま記事と要約ページを切り替えられます。カード本体をタップするとSafariで元記事が開きます。
+- **ロック画面・ホーム画面ウィジェット**: `accessoryRectangular`（時計下）、`accessoryInline`（時計上）、`accessoryCircular`、およびホーム画面・今日表示用の `systemLarge` ウィジェットにも対応しています。
+
+### 1. GitHub Actions で `.ipa` をビルドする（Mac不要）
+1. リポジトリの `ios/` を含めてGitHubへ `git push` します（またはGitHubの **Actions** タブ ＞ **Build iOS IPA (Unsigned)** ＞ **Run workflow** を手動実行します）。
+2. ワークフロー完了後、Artifacts欄から **`ITTrendApp-ipa`** をダウンロードして解凍し、`ITTrendApp.ipa` を取り出します。
+
+> **Note**: リポジトリをForkまたは別リポジトリへコピーして使う場合は、アプリ内の歯車（⚙）設定画面で `articles.json` のURLを書き換えるか、`ios/Shared/ArticleStore.swift` の `defaultJsonURL` を変更してからビルドしてください。
+
+### 2. Windows PC から iPhone へインストールする
+#### 方法①：Sideloadly（一番手軽・USBまたは同一Wi-Fiで週1回更新）
+1. Windows PCに **iTunes（Apple公式版・Microsoft Store版ではないもの）** と **iCloud**、および **[Sideloadly](https://sideloadly.io/)** をインストールします。
+2. iPhoneをUSBケーブルでWindows PCに接続し、「このコンピュータを信頼」をタップします。
+3. Sideloadlyを開き、`ITTrendApp.ipa` をドラッグ＆ドロップ、**Apple Account**（通常の無料Apple IDでOK）を入力して **Start** を押します。
+4. iPhoneの **設定 ＞ 一般 ＞ VPNとデバイス管理** から自分のApple IDを選択して **「信頼」** をタップします（iOS 16以降は **設定 ＞ プライバシーとセキュリティ ＞ デベロッパモード** もオンにして再起動）。
+
+#### 方法②：SideStore（初回のみPC接続・以降はiPhone単体で7日制限を自動更新）
+1. 7日ごとのPC接続を省きたい場合は **[SideStore](https://sidestore.io/)** をiPhoneに導入し、`ITTrendApp.ipa` をSideStoreからインストールすると、Wi-Fi接続時にiPhone単体で署名更新ができます（無料Apple IDでは同時インストール可能な自作アプリ枠が最大3つまでに制限されており、Widget Extensionを含めて本アプリで2枠使用します）。
+
+### 3. ロック画面での自動起動（iOS ショートカット設定・推奨）
+1. `IT Trend` アプリを開き、**「🔒 ロック画面にカードを表示 (Live Activity)」** を1回タップします（初回はライブアクティビティの許可を確認）。
+2. iOSの仕様上、Live Activityは1回あたり最長8時間で終了するため、iPhone標準の **「ショートカット」アプリ ＞ オートメーション ＞「+」＞ 時刻（例: 毎日 07:00）＞ すぐに実行** を選び、アクションで **「IT Trend」の「ロック画面カードを開始・更新」**（または「URLを開く」で `ittrend://start`）を設定しておくと、毎朝自動でロック画面に最新ニュースカードが表示されます。
+
+---
+
 ## 🛠 開発用コマンド
 
 - **パッケージインストール:**

@@ -1,0 +1,66 @@
+name: Build iOS IPA (Unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/build-ios-ipa.yml"
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build unsigned Release app
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project ITTrendApp.xcodeproj \
+            -scheme ITTrendApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/ITTrendApp.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: App bundle not found at $APP_PATH"
+            exit 1
+          fi
+          rm -rf payload_tmp ITTrendApp.ipa
+          mkdir -p payload_tmp/Payload
+          cp -R "$APP_PATH" payload_tmp/Payload/
+          if [ -d "payload_tmp/Payload/ITTrendApp.app/PlugIns" ]; then
+            for ext in payload_tmp/Payload/ITTrendApp.app/PlugIns/*.appex; do
+              [ -e "$ext" ] && codesign --force --sign - "$ext"
+            done
+          fi
+          codesign --force --sign - "payload_tmp/Payload/ITTrendApp.app"
+          (cd payload_tmp && zip -r ../ITTrendApp.ipa Payload)
+          ls -lh ITTrendApp.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ITTrendApp-ipa
+          path: ios/ITTrendApp.ipa
+          retention-days: 30
