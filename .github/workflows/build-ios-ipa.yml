@@ -10,9 +10,13 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-ios-ipa
+  cancel-in-progress: true
+
 jobs:
   build-ipa:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,7 +25,7 @@ jobs:
         run: xcodebuild -version
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: which xcodegen >/dev/null 2>&1 || brew install xcodegen
 
       - name: Generate Xcode project
         working-directory: ios
