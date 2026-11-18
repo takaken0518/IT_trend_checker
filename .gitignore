@@ -17,3 +17,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# iOS local IPA artifact
+ITTrendApp.ipa
